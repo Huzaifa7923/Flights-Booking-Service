@@ -5,7 +5,6 @@ class AppError extends Error{
         // console.log(3);
         this.statusCode=statusCode?statusCode:500;
         this.explanation=message
-
     }
 } 
 
