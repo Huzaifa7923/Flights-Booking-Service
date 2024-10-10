@@ -1,13 +1,17 @@
 const { BookingRepository } = require("../repositories");
 const axios=require('axios')
-
-const bookingRepository=new BookingRepository();
-
 const {Booking} = require('../models');
 const db = require("../models");
 const {ServerConfig} = require("../config");
 const AppError = require("../utils/errors/app-error");
 const { StatusCodes } = require("http-status-codes");
+const {Enums} = require('../utils/common')
+const {CANCELLED,BOOKED} = Enums.BOOKING_STATUS
+
+
+const bookingRepository=new BookingRepository();
+
+
 
 const createBooking=async(data)=>{
     // console.log('create Booking')
@@ -25,7 +29,7 @@ const createBooking=async(data)=>{
                 const totalPrice=data.noOfSeats*flightData.price;
                 const bookingPayload={...data,totalCost:totalPrice}
 
-                console.log(bookingPayload);
+                // console.log(bookingPayload);
 
                 const booking=await bookingRepository.createBooking(bookingPayload,t)
                 await axios.patch(`${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${data.flightId}/seats`,{
@@ -36,7 +40,7 @@ const createBooking=async(data)=>{
         })
 
     }catch(err){
-        console.log(err);
+        // console.log(err);
         if(err instanceof AppError){
             throw err;
         }else{
@@ -45,6 +49,71 @@ const createBooking=async(data)=>{
     }
 }
 
+const makePayment=async(data)=>{
+   
+    const {userId,bookingId,totalCost}=data;
+    const transaction=await db.sequelize.transaction();
+    try{
+        const bookingDetails=await bookingRepository.getBooking(bookingId,transaction);
+
+        // console.log(userId)
+        // console.log(bookingId)
+        // console.log(totalCost)
+        if(!bookingDetails){
+            throw new AppError('Booking does not exist',StatusCodes.BAD_REQUEST);
+        }
+
+        // console.log('xx')
+        // console.log(bookingDetails)
+        if(bookingDetails.status===CANCELLED){
+            throw new AppError('Booking has expired please retry again',StatusCodes.BAD_REQUEST);
+        }
+        if(bookingDetails.status===BOOKED){
+            throw new AppError('Already booked',StatusCodes.BAD_REQUEST);
+        }
+
+        if(bookingDetails.userId != userId){
+            throw new AppError('User corresponding to the booking does not match',StatusCodes.BAD_REQUEST);
+        }
+
+        if(bookingDetails.totalCost!=totalCost){
+            throw new AppError('Amount does not match',StatusCodes.BAD_REQUEST);
+        }
+
+        const bookingTime=new Date(bookingDetails.createdAt);
+        const currentTime=new Date();
+
+        // console.log(bookingTime)
+        // console.log(currentTimeTime)
+        if(currentTime-bookingTime>300000){
+            console.log('time fucked')
+            await bookingRepository.updateBooking(bookingId,{
+                status:CANCELLED
+            },transaction)
+
+            throw new AppError('Booking time expired',StatusCodes.BAD_REQUEST);
+        }
+
+        // let successfull
+
+        await bookingRepository.updateBooking(bookingId,{
+            status:BOOKED
+        },transaction)
+
+        await transaction.commit();
+
+        return true;
+    }catch(err){
+        console.log(err);
+        await transaction.rollback();
+        if(err instanceof AppError)
+            throw err;
+        throw new AppError('Internal Server Error',StatusCodes.INTERNAL_SERVER_ERROR)
+    }
+
+}
+
 module.exports={
-    createBooking
+    createBooking,
+    makePayment
 }

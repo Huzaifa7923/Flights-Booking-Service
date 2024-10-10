@@ -1,6 +1,5 @@
 const CrudRepostory = require("./crud-repository");
 const {Booking}=require('../models');
-const { Transaction } = require("sequelize");
 
 class BookingRepository extends CrudRepostory{
     constructor(){
@@ -12,6 +11,22 @@ class BookingRepository extends CrudRepostory{
         return response;
     }
 
+    async getBooking(data,transaction){
+        const response=await Booking.findByPk(data,{
+            transaction
+        });
+        return response;
+    }
+
+    async updateBooking(id,data,transaction){
+        const response=await Booking.update(data,{
+            where:{
+                id
+            }
+        },{transaction})
+
+        return response;
+    }
 }
 
 module.exports=BookingRepository
