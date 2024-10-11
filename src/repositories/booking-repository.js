@@ -1,5 +1,6 @@
 const CrudRepostory = require("./crud-repository");
 const {Booking}=require('../models');
+const {Op} = require("sequelize")
 
 class BookingRepository extends CrudRepostory{
     constructor(){
@@ -18,12 +19,33 @@ class BookingRepository extends CrudRepostory{
         return response;
     }
 
-    async updateBooking(id,data,transaction){
+    async getExpiredBooking(timeStamp){
+        console.log('expired called')
+        const response=await Booking.findAll({
+            where:{
+                [Op.and]:[
+                    {
+                        status:'INITIATED'
+                    },
+                    {
+                        createdAt:{
+                            [Op.lt]:timeStamp
+                        }
+                    }
+                ]
+            }
+        })
+
+        return response;
+    }
+
+    async updateBooking(id,data,transaction=null){
         const response=await Booking.update(data,{
             where:{
                 id
-            }
-        },{transaction})
+            },
+            transaction
+        })
 
         return response;
     }

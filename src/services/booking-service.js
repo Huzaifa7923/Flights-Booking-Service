@@ -6,11 +6,40 @@ const {ServerConfig} = require("../config");
 const AppError = require("../utils/errors/app-error");
 const { StatusCodes } = require("http-status-codes");
 const {Enums} = require('../utils/common')
-const {CANCELLED,BOOKED} = Enums.BOOKING_STATUS
+const {CANCELLED,BOOKED,INITIATED} = Enums.BOOKING_STATUS
 
 
 const bookingRepository=new BookingRepository();
 
+
+const cancelOldBookings=async()=>{
+    try{
+    const time = new Date( Date.now() - 1000 * 300 ); // time 5 mins ago
+    
+    const bookings =await bookingRepository.getExpiredBooking(time)
+
+    for(const booking of bookings){
+        const transaction=await db.sequelize.transaction();
+        try{
+            await bookingRepository.updateBooking(booking.id, { status: 'CANCELLED' }, transaction);
+
+            await axios.patch(`${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${booking.flightId}/seats`,{
+                seats:Number(booking.noOfSeats),
+                dec:0
+            });
+
+            await transaction.commit();
+        }catch(error){
+            await transaction.rollback();
+            console.log('cron job error')
+            console.log(error);
+        }
+    }
+}catch(err){
+    console.log('error in cron job outer')
+    console.log(err);
+}
+}
 
 
 const createBooking=async(data)=>{
@@ -147,5 +176,6 @@ const makePayment=async(data)=>{
 
 module.exports={
     createBooking,
-    makePayment
+    makePayment,
+    cancelOldBookings
 }
