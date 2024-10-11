@@ -15,32 +15,40 @@ const bookingRepository=new BookingRepository();
 
 const createBooking=async(data)=>{
     // console.log('create Booking')
+
+    let bookingResult;
     try{
+        const flight=await axios.get(`${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${data.flightId}`)
+        const flightData=flight.data.data;
 
-        return db.sequelize.transaction(async function bookingImpl(t){
-            const flight=await axios.get(`${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${data.flightId}`)
+        if(flightData.totalSeats<data.noOfSeats){
+            throw new AppError('Not enough seats available ',StatusCodes.BAD_REQUEST)
+        }
 
-            const flightData=flight.data.data;
-
-
-            if(flightData.totalSeats<data.noOfSeats){
-                throw new AppError('Not enough seats available ',StatusCodes.BAD_REQUEST)
-            }
+        bookingResult=await  db.sequelize.transaction(async function bookingImpl(t){
+            
                 const totalPrice=data.noOfSeats*flightData.price;
                 const bookingPayload={...data,totalCost:totalPrice}
 
                 // console.log(bookingPayload);
 
                 const booking=await bookingRepository.createBooking(bookingPayload,t)
-                await axios.patch(`${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${data.flightId}/seats`,{
-                    seats:Number(data.noOfSeats),
-                    dec:1
-                });
                 return booking;
         })
+        // if transaction succeeds 
+        await axios.patch(`${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${data.flightId}/seats`,{
+            seats:Number(data.noOfSeats),
+            dec:1
+        });
+
+        return bookingResult;
 
     }catch(err){
-        // console.log(err);
+        //axios patch request failed
+        if(bookingResult){
+            await cancelBooking(bookingResult);
+        }
+
         if(err instanceof AppError){
             throw err;
         }else{
@@ -49,10 +57,10 @@ const createBooking=async(data)=>{
     }
 }
 
-const cancelBooking=async(bookingDetails,transaction)=>{
-
+const cancelBooking=async(bookingDetails,transaction=null)=>{
+    const t = transaction || await db.sequelize.transaction();
     try{
-        await bookingRepository.updateBooking(bookingDetails.id,{status:CANCELLED},transaction);
+        await bookingRepository.updateBooking(bookingDetails.id,{status:CANCELLED},t);
         const response=await axios.patch(`${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${bookingDetails.flightId}/seats`,{
             dec:0,
             seats:bookingDetails.noOfSeats
@@ -60,6 +68,8 @@ const cancelBooking=async(bookingDetails,transaction)=>{
         console.log(response);
         return true;
 }catch(err){
+    if(!transaction)
+        t.rollback();
     console.log(err);
     throw new AppError('error inside cancelBooking',StatusCodes.INTERNAL_SERVER_ERROR);
 }
