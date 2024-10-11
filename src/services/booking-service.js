@@ -44,10 +44,27 @@ const createBooking=async(data)=>{
         if(err instanceof AppError){
             throw err;
         }else{
-            throw new AppError('Failed to create booking', StatusCodes.INTERNAL_SERVER_ERROR);
+            throw new AppError(err.message, StatusCodes.INTERNAL_SERVER_ERROR);
         }
     }
 }
+
+const cancelBooking=async(bookingDetails,transaction)=>{
+
+    try{
+        await bookingRepository.updateBooking(bookingDetails.id,{status:CANCELLED},transaction);
+        const response=await axios.patch(`${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${bookingDetails.flightId}/seats`,{
+            dec:0,
+            seats:bookingDetails.noOfSeats
+        })
+        console.log(response);
+        return true;
+}catch(err){
+    console.log(err);
+    throw new AppError('error inside cancelBooking',StatusCodes.INTERNAL_SERVER_ERROR);
+}
+}
+
 
 const makePayment=async(data)=>{
    
@@ -85,11 +102,16 @@ const makePayment=async(data)=>{
 
         // console.log(bookingTime)
         // console.log(currentTimeTime)
+
+        // booking need to be cancelled and again whole process will restart , in above -> retry only payment 
         if(currentTime-bookingTime>300000){
-            console.log('time fucked')
-            await bookingRepository.updateBooking(bookingId,{
-                status:CANCELLED
-            },transaction)
+
+            await cancelBooking(bookingDetails,transaction);
+
+            // console.log('time fucked')
+            // await bookingRepository.updateBooking(bookingId,{
+            //     status:CANCELLED
+            // },transaction)
 
             throw new AppError('Booking time expired',StatusCodes.BAD_REQUEST);
         }
@@ -108,7 +130,7 @@ const makePayment=async(data)=>{
         await transaction.rollback();
         if(err instanceof AppError)
             throw err;
-        throw new AppError('Internal Server Error',StatusCodes.INTERNAL_SERVER_ERROR)
+        throw new AppError(err.message,StatusCodes.INTERNAL_SERVER_ERROR)
     }
 
 }
